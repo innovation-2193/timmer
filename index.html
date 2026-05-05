@@ -11,7 +11,6 @@
     height: 100vh; background-color: #f4f7f6; margin: 0;
     transition: background-color 0.3s;
   }
-  /* แอนิเมชันตอนหมดเวลาให้จอกะพริบ */
   .alarm-active { animation: blinkRed 1s infinite; }
   @keyframes blinkRed { 
       0% { background-color: #ffcccc; } 
@@ -33,7 +32,17 @@
     border: 2px solid #ddd; border-radius: 10px; outline: none;
   }
   input:focus { border-color: #007bff; }
-  .time-display { font-size: 5rem; font-weight: bold; margin: 20px 0; color: #222; font-variant-numeric: tabular-nums; }
+  
+  /* ปรับแต่งหน้าจอเวลาให้มีมิลลิวินาที */
+  .time-display { 
+    font-size: 5rem; font-weight: bold; margin: 20px 0; color: #222; 
+    font-variant-numeric: tabular-nums; /* ป้องกันตัวเลขดิ้นเวลากะพริบเร็วๆ */
+  }
+  .ms-text {
+    font-size: 2.5rem; /* ทำให้ตัวมิลลิวินาทีเล็กลงหน่อยเพื่อความสวยงาม */
+    color: #666;
+  }
+
   button {
     padding: 12px 25px; font-size: 1.2rem; cursor: pointer; border: none;
     border-radius: 10px; margin: 5px; color: white; transition: 0.2s; font-weight: bold;
@@ -43,7 +52,6 @@
   #resetBtn { background-color: #6c757d; }
   #resetBtn:hover { background-color: #5a6268; }
   
-  /* ปุ่มหยุดเสียง (ตอนแรกจะซ่อนไว้) */
   #stopAlarmBtn { 
     background-color: #dc3545; display: none; font-size: 1.5rem; padding: 15px 30px; 
     box-shadow: 0 5px 15px rgba(220, 53, 69, 0.4); animation: pulse 1s infinite;
@@ -67,7 +75,7 @@
     </div>
   </div>
 
-  <div class="time-display" id="display">00:10</div>
+  <div class="time-display" id="display">00:10<span class="ms-text">.00</span></div>
 
   <div>
     <button id="startBtn" onclick="startTimer()">เริ่มจับเวลา</button>
@@ -81,6 +89,7 @@
   let alarmInterval;
   let isRunning = false;
   let audioCtx;
+  let endTime; // ตัวแปรเก็บเวลาที่หมด
 
   const display = document.getElementById('display');
   const minInput = document.getElementById('minutes');
@@ -90,23 +99,17 @@
   const resetBtn = document.getElementById('resetBtn');
   const stopAlarmBtn = document.getElementById('stopAlarmBtn');
 
-  // เตรียมระบบเสียง
   function initAudio() {
-    if (!audioCtx) {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume();
-    }
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
   }
 
-  // สร้างเสียงติ๊ด 1 ครั้ง
   function playBeep() {
     if (!audioCtx) return;
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.type = 'sine'; 
-    osc.frequency.setValueAtTime(880, audioCtx.currentTime); // ความถี่เสียง 880Hz
+    osc.frequency.setValueAtTime(880, audioCtx.currentTime); 
     gain.gain.setValueAtTime(1, audioCtx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
     osc.connect(gain);
@@ -115,72 +118,79 @@
     osc.stop(audioCtx.currentTime + 0.4);
   }
 
-  function updateDisplay(m, s) {
-    display.textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  // อัปเดตหน้าจอให้แสดง นาที:วินาที.มิลลิวินาที
+  function updateDisplay(m, s, ms = 0) {
+    let minStr = String(m).padStart(2, '0');
+    let secStr = String(s).padStart(2, '0');
+    let msStr = String(ms).padStart(2, '0');
+    // แทรก span เพื่อให้ตัวเลขมิลลิวินาทีเล็กลงนิดหน่อย
+    display.innerHTML = `${minStr}:${secStr}<span class="ms-text">.${msStr}</span>`;
   }
 
   function startTimer() {
     if (isRunning) return;
 
-    let totalSeconds = parseInt(minInput.value || 0) * 60 + parseInt(secInput.value || 0);
+    let totalMilliseconds = (parseInt(minInput.value || 0) * 60 + parseInt(secInput.value || 0)) * 1000;
 
-    if (totalSeconds <= 0) {
+    if (totalMilliseconds <= 0) {
         alert("กรุณาตั้งเวลาให้มากกว่า 0 วินาที");
         return;
     }
 
-    initAudio(); // เปิดอนุญาตให้เบราว์เซอร์เล่นเสียงได้
+    initAudio(); 
     isRunning = true;
-    updateDisplay(Math.floor(totalSeconds / 60), totalSeconds % 60);
+    
+    // ตั้งเป้าหมายเวลาในอนาคตเทียบกับเวลาจริงปัจจุบัน
+    endTime = Date.now() + totalMilliseconds;
 
+    // รันอัปเดตหน้าจอทุกๆ 10 มิลลิวินาที เพื่อความสมูท
     countdown = setInterval(() => {
-      totalSeconds--;
-      let m = Math.floor(totalSeconds / 60);
-      let s = totalSeconds % 60;
-      updateDisplay(m, s);
+      let remaining = endTime - Date.now();
 
-      if (totalSeconds <= 0) {
+      if (remaining <= 0) {
         clearInterval(countdown);
         isRunning = false;
-        triggerAlarm(); // เรียกฟังก์ชันเปิดเสียงเตือนรัวๆ
+        updateDisplay(0, 0, 0); // บังคับให้เป็น 00:00.00 พอดี
+        triggerAlarm(); 
+      } else {
+        let m = Math.floor(remaining / 60000);
+        let s = Math.floor((remaining % 60000) / 1000);
+        let ms = Math.floor((remaining % 1000) / 10); // หาร 10 เพื่อให้แสดง 2 หลัก (00-99)
+        updateDisplay(m, s, ms);
       }
-    }, 1000);
+    }, 10);
   }
 
-  // ฟังก์ชันให้เสียงดังต่อเนื่อง และสลับปุ่ม
   function triggerAlarm() {
-    // ซ่อนปุ่มเริ่มและรีเซ็ต, โชว์ปุ่มหยุดเสียงเตือน
     startBtn.style.display = "none";
     resetBtn.style.display = "none";
     stopAlarmBtn.style.display = "inline-block";
     
-    document.body.classList.add("alarm-active"); // ให้จอกะพริบสีแดง
+    document.body.classList.add("alarm-active"); 
 
-    playBeep(); // เล่นเสียงครั้งแรก
-    alarmInterval = setInterval(playBeep, 600); // เล่นเสียงซ้ำทุกๆ 0.6 วินาทีไปเรื่อยๆ
+    playBeep(); 
+    alarmInterval = setInterval(playBeep, 600); 
   }
 
-  // ฟังก์ชันหยุดเสียงเตือนเมื่อกดปุ่ม
   function stopAlarm() {
-    clearInterval(alarmInterval); // หยุด Loop เสียง
-    document.body.classList.remove("alarm-active"); // หยุดจอกะพริบ
+    clearInterval(alarmInterval); 
+    document.body.classList.remove("alarm-active"); 
     
-    // สลับปุ่มกลับมาเหมือนเดิม
     stopAlarmBtn.style.display = "none";
     startBtn.style.display = "inline-block";
     resetBtn.style.display = "inline-block";
     
-    resetTimer(); // รีเซ็ตเวลาให้พร้อมใช้งานรอบใหม่
+    resetTimer(); 
   }
 
   function resetTimer() {
     clearInterval(countdown);
     isRunning = false;
-    updateDisplay(minInput.value || 0, secInput.value || 0);
+    updateDisplay(minInput.value || 0, secInput.value || 0, 0);
   }
 
-  minInput.addEventListener('input', () => { if(!isRunning) updateDisplay(minInput.value || 0, secInput.value || 0) });
-  secInput.addEventListener('input', () => { if(!isRunning) updateDisplay(minInput.value || 0, secInput.value || 0) });
+  minInput.addEventListener('input', () => { if(!isRunning) updateDisplay(minInput.value || 0, secInput.value || 0, 0) });
+  secInput.addEventListener('input', () => { if(!isRunning) updateDisplay(minInput.value || 0, secInput.value || 0, 0) });
 </script>
 
 </body>
